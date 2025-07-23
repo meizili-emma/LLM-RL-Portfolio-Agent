@@ -1,8 +1,11 @@
 # Data files
-data/
+data/*
 *.parquet
 *.csv
 *.json
+!data/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
 
 # Python Caches and Environment
 __pycache__/
