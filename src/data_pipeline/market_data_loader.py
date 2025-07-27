@@ -27,7 +27,6 @@ RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw" / "market"
 CACHE_FILE = RAW_DATA_DIR / f"market_original_daily_{config.STOCK_POOL_NAME}.parquet"
 
 
-
 def diagnose_data_quality(df: pd.DataFrame, missing_threshold: float = 0.03) -> Tuple[int, List[str]]:
     """
     Analyzes the raw DataFrame for missing values and identifies low-quality stocks.
@@ -103,6 +102,7 @@ def fetch_data_from_yfinance(tickers: list[str], start: str, end: str) -> pd.Dat
     print("✅ Download successful.")
     return df 
 
+
 def get_market_data(
     tickers: list[str],
     start_date: str,
@@ -136,7 +136,6 @@ def get_market_data(
         return clean_df
     else: 
         return None 
-
 
 
 if __name__ == "__main__":
