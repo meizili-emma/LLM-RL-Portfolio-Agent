@@ -159,8 +159,3 @@ if __name__ == "__main__":
     start_year = 2014
     acquire_portfolio_universe(start_year)
 
-
-
-
-# check market_data_loader.py for yfinance download function, the warmup setting. And the way to call this module, whether yfinance would be set as though
-
