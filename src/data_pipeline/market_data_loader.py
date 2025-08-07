@@ -13,7 +13,7 @@ import shutil
 # --- IMPORTANT: Set Cache Directory BEFORE yfinance import ---
 # Use a temporary, isolated cache for each run 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-TEMP_CACHE_BASE_DIR = PROJECT_ROOT / "data" / ".temp_caches"
+TEMP_CACHE_BASE_DIR = PROJECT_ROOT / "data" / ".cache"/"yfinance"
 TEMP_CACHE_BASE_DIR.mkdir(parents=True, exist_ok=True)
 temp_cache_dir = tempfile.mkdtemp(dir=TEMP_CACHE_BASE_DIR)
 atexit.register(shutil.rmtree, temp_cache_dir, ignore_errors=True)
@@ -91,11 +91,14 @@ def diagnose_data_quality(df: pd.DataFrame, missing_threshold: float = 0.03) -> 
 )
 def fetch_data_from_yfinance(tickers: list[str], start: str, end: str) -> pd.DataFrame:
     """A robust wrapper around yf.download() that lets yfinance handle the session."""
+
     print(f"Attempting to download data for {len(tickers)} tickers...")
+
     # Ensure tickers are unique and non-empty
     tickers = list(set(ticker for ticker in tickers if ticker))
     if not tickers:
         raise ValueError("No valid tickers provided.")
+
     df = yf.download(tickers, start=start, end=end, auto_adjust=True, ignore_tz=True)
     if df.empty:
         raise IOError("No data returned from yfinance. Retrying...")
@@ -112,7 +115,7 @@ def get_market_data(
 ) -> pd.DataFrame:
     """Downloads, validates, and caches daily OHLCV data."""
     raw_data_dir = PROJECT_ROOT / "data" / "raw" / "market"
-    cache_filepath = raw_data_dir / f"market_original_daily_{stock_pool_name}.parquet"
+    cache_filepath = raw_data_dir / f"market_original_{stock_pool_name}/{start_date}.parquet"
     cache_filepath.parent.mkdir(parents=True, exist_ok=True)
 
     if cache_filepath.exists() and not force_redownload:
@@ -120,7 +123,13 @@ def get_market_data(
         return pd.read_parquet(cache_filepath)
 
     print("ℹ️ No cache found or redownload forced. Fetching data from yfinance...")
-    raw_df = fetch_data_from_yfinance(tickers, start_date, end_date)
+
+     # Calculate the earlier start date for download
+    download_start_date = (pd.to_datetime(start_date) - pd.DateOffset(weeks=config.WARMUP_WEEKS)).strftime('%Y-%m-%d')
+    # Make the end date inclusive
+    inclusive_end_date = (pd.to_datetime(end_date) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+
+    raw_df = fetch_data_from_yfinance(tickers, download_start_date, inclusive_end_date)
     
     # --- Run Diagnostics and Clean Data ---
     if raw_df is not None: 
