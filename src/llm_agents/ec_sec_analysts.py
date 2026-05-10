@@ -9,7 +9,7 @@ import pandas as pd
 from pydantic import BaseModel
 from tqdm.auto import tqdm
 
-from src.llm_agents.ec_sec_schema_v2 import (
+from src.llm_agents.ec_sec_schema import (
     ECChunkMap,
     ECReduce,
     SECChunkMapMDNA,

@@ -1,0 +1,184 @@
+experiment:
+  name: "llm_rl_portfolio_v1"
+  seed: 42
+  log_root: "data/rl_runs"   # root dir; one subdir per run
+  pretrained_model_path: null
+  stage: final
+
+data:
+  file_path:  "data/processed/tier2.parquet"  # "data/raw/market/weekly_with_ta.parquet"  #
+  canonical_tickers:
+    - AAPL 
+    - AMD 
+    - AMT 
+    - AMZN 
+    - BA
+    - BAC
+    - GOOGL
+    - INTC 
+    - JPM
+    - LIN
+    - META
+    - MSFT
+    - MU
+    - NEE
+    - NFLX
+    - NVDA
+    - UNH
+    - V
+    - WMT
+    - XOM
+  first_trade_date: "2019-04-18"   # first RL action
+  last_trade_date: "2025-08-29"    # last RL action with full features
+  terminal_date: "2025-09-05"      # price-only date for final log return
+  train_ratio: 0.7                 # was train_frac; run.py still tolerates train_frac if present
+  norm_window_size: 26
+  trading_state_history_len: 8
+
+env:
+  initial_cash: 1000000.0
+  buy_cost_pct: 0.001
+  sell_cost_pct: 0.001
+  min_cash_weight: 0.02
+  allow_fractional: true
+
+  # Column names for feature groups (must exist in df_env)
+  tech_indicator_list: []            # e.g. ["rsi_14", "sma_26", ...]
+  fundamental_indicator_list: []     # e.g. ["pe_ratio", "pb_ratio"]
+  global_feature_list: []            # e.g. ["turbulence", "term_spread"]
+
+  # Risk & reward parameters
+  use_llm_risk: false
+  use_market_risk: false
+  max_llm_risk_score: null           # auto-infer if None and col is provided
+  max_turbulence: null               # auto-infer if None and col is provided
+  market_risk_exposure_col: "turbulence"   # or "turbulence"
+
+  llm_feature_list:
+    - ec_signal
+    - ec_risk_score
+    - ec_confidence
+    - sec_signal
+    - sec_risk_score
+    - sec_confidence
+    - news_signal
+    - news_risk_score
+    - news_confidence
+    - tech_signal
+    - tech_risk_score
+    - tech_confidence
+
+  llm_feature_mask:
+    ec_signal: 1.0
+    ec_risk_score: 1.0
+    ec_confidence: 1.0
+    sec_signal: 1.0
+    sec_risk_score: 1.0
+    sec_confidence: 1.0
+    news_signal: 0.0
+    news_risk_score: 0.0
+    news_confidence: 0.0
+    tech_signal: 0.0
+    tech_risk_score: 0.0
+    tech_confidence: 0.0
+
+  beta: 1.0
+  gamma: 1.0
+  reward_scaling: 1.0
+
+feature_extractor:
+  enabled: true
+
+  # high-level choices
+  per_ticker_mode: "flatten"      # "pool" | "flatten" | "attention". Per-ticker aggregation to a fixed feature vector
+  trading_mode: "mlp"             # "mlp" | "conv1d". Per-ticker trading feature encoder
+  pool: "mean"                    # only used if per_ticker_mode="pool"
+
+  # dimensions
+  z_port: 16
+  z_glob: 16
+  z_trad: 16
+  z_val: 32
+  fuse_dim: 128
+
+  # depths
+  port_depth: 2
+  glob_depth: 2
+  trad_depth: 1
+  val_pt_depth: 1
+
+  # ticker embeddings & context broadcast
+  use_ticker_embed: true
+  ticker_emb_dim: 8
+  use_broadcast_ctx: true
+
+  # attention config (only used if per_ticker_mode="attention")
+  attn_d_model: 32
+  attn_heads: 2
+  attn_ffn_hidden: null
+  attn_ffn_depth: 1
+  attn_dropout: 0.0
+  attn_ffn_dropout: 0.0
+
+  # regularization
+  use_layernorm: false
+  use_dropout: false
+  dropout_p: 0.0
+
+  # activations
+  last_act_port: true
+  last_act_glob: true
+  last_act_trad: false
+  last_act_val_pt: false
+
+rl:
+  algo: "PPO"
+  policy: "MultiInputPolicy"
+  total_timesteps: 20000              # you can bump this as needed
+  n_envs: 2
+
+  hyperparams:
+    learning_rate: 0.0003
+    n_steps: 2048
+    batch_size: 64
+    n_epochs: 10
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.0
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+
+  vec_env:
+    use_subproc: true
+    norm_reward: false                  # we decided to start without reward normalization
+    clip_reward: 10.0
+
+logging:
+  save_every_episodes: 20               # currently unused, but kept for future extensions
+  step_filename: "train_steps.jsonl"
+  episode_filename: "train_episodes.jsonl"
+  test_step_filename: "test_steps.jsonl"
+  test_episode_filename: "test_episodes.jsonl"
+  verbose: 1
+
+  # These are directory names; run.py will create them under log_root/run_id/
+  train:
+    monitor_dir: "train"
+    step_file: "train_steps.jsonl"
+    episode_file: "train_episodes.jsonl"
+    model_dir: "models"           # where final_model.zip is saved (under run_dir)
+
+  test:
+    monitor_dir: "test"   # not used directly now, but kept for compatibility
+    step_file: "test_steps.jsonl"
+    episode_file: "test_episodes.jsonl"
+    model_dir: "models"      # for evaluated copies if needed later
+
+test:
+  enabled: true
+  n_episodes: 1
+  deterministic: true
+  max_steps: null           # or an int if you want to truncate test runs
+  log_subdir: "test"        # where test_steps.jsonl / test_episodes.jsonl / minotor.csv live under each run_dir
+  seed: 1234

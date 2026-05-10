@@ -1,25 +1,45 @@
-# environment.yml
-
 name: portfolio_agent
+
 channels:
   - conda-forge
   - defaults
+
 dependencies:
-  # Core Conda packages
   - python=3.11
   - pip
+
+  # Core scientific stack
+  - numpy
   - pandas
+  - pyarrow
+  - matplotlib
+  - pyyaml
+  - tqdm
+
+  # Data access and market calendar
+  - requests
   - yfinance
-  - langchain      # Core framework for LLM agents
-  - langchain-openai # Contains the specific AzureChatOpenAI integration
-  - openai         # The underlying library needed by langchain-openai
+  - pandas-market-calendars
+
+  # LLM and structured-output stack
+  - openai
   - pydantic
   - tenacity
-  - pyarrow
+  - langchain
+  - langchain-openai
+
+  # Development
   - jupyterlab
 
-  # Packages to be installed with Pip
   - pip:
-    - newsapi-python
-    - fredapi
-    - pandas-ta
+      # Financial data APIs
+      - newsapi-python
+      - fredapi
+
+      # Technical indicators
+      - pandas-ta-classic
+
+      # Reinforcement learning stack
+      - stable-baselines3
+      - gymnasium
+      - torch

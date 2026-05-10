@@ -167,3 +167,151 @@ def plan_rl_train_test_split(
         },
     }
     return split_plan
+
+
+def plan_rl_train_test_split_with_forward_rolling_val(
+    df_env: pd.DataFrame,
+    first_trade_date: str,
+    last_trade_date: str,
+    terminal_date: str,
+    train_ratio: float,
+    norm_window_size: int,
+    trading_state_history_len: int,
+    *,
+    n_val_folds: int = 3,
+    val_action_days: int = 30,
+    min_train_action_days: int = 150,
+) -> Dict[str, Any]:
+    """
+    Extend plan_rl_train_test_split() with forward-rolling validation folds.
+
+    - Outer train/test split is as in plan_rl_train_test_split (same dates/indices).
+    - Inside the outer training action window, we build n_val_folds folds:
+        For each fold:
+          train actions: [outer_train_first_action .. train_last_action]
+          val actions:   [val_start .. val_end]
+      where val blocks roll forward near the end of the training window.
+
+    Each train/val window is extended backward by warmup_len and forward by +1 day
+    to obtain episode_start_idx/episode_end_idx, consistent with your existing logic.
+    """
+    # 1) Build the original outer split (unchanged logic)
+    base = plan_rl_train_test_split(
+        df_env=df_env,
+        first_trade_date=first_trade_date,
+        last_trade_date=last_trade_date,
+        terminal_date=terminal_date,
+        train_ratio=train_ratio,
+        norm_window_size=norm_window_size,
+        trading_state_history_len=trading_state_history_len,
+    )
+
+    warmup_len = int(base["meta"]["warmup_len"])
+    terminal_idx = int(base["meta"]["terminal_idx"])
+
+    outer_train_first_action = int(base["train"]["first_trade_idx"])
+    outer_train_last_action = int(base["train"]["last_trade_idx"])
+
+    outer_train_num_actions = outer_train_last_action - outer_train_first_action + 1
+    if outer_train_num_actions < max(2, min_train_action_days):
+        raise ValueError(
+            "Training action window too small to construct validation folds. "
+            f"outer_train_num_actions={outer_train_num_actions}, "
+            f"min_train_action_days={min_train_action_days}. "
+            "Increase train_ratio or relax val_min_train_action_days."
+        )
+
+    if val_action_days < 2:
+        raise ValueError("val_action_days must be >= 2.")
+    
+    max_possible_folds = max(
+        0,
+        (outer_train_num_actions - min_train_action_days) // val_action_days,
+    )
+    if max_possible_folds <= 0:
+        raise ValueError(
+            "Cannot construct any validation folds with the given settings. "
+            f"outer_train_num_actions={outer_train_num_actions}, "
+            f"val_action_days={val_action_days}, "
+            f"val_min_train_action_days={min_train_action_days}. "
+            "Increase train_ratio or reduce val_action_days / val_min_train_action_days."
+        )
+
+    if n_val_folds < 1:
+        base["val_folds"] = []
+        base["meta"]["val_folds"] = {"enabled": False}
+        return base
+
+    n_val_folds_eff = int(min(n_val_folds, max_possible_folds))
+    last_action = outer_train_last_action
+    total_val_span = n_val_folds * val_action_days
+    earliest_val_start = last_action - total_val_span + 1
+
+    folds: List[Dict[str, Any]] = []
+    for i in range(n_val_folds_eff):
+        val_start = earliest_val_start + i * val_action_days
+        val_end = val_start + val_action_days - 1
+
+        if val_end > last_action:
+            val_end = last_action
+        if val_start > val_end:
+            continue
+
+        train_last_action = val_start - 1
+        train_num_actions = train_last_action - outer_train_first_action + 1
+        if train_num_actions < min_train_action_days:
+            # too little training for this fold; skip
+            continue
+
+        # Train slice indices (with warmup and +1 terminal day)
+        train_episode_start_idx = max(0, outer_train_first_action - warmup_len)
+        train_episode_end_idx = min(train_last_action + 1, terminal_idx)
+
+        # Val slice indices (with warmup and +1 terminal day)
+        val_episode_start_idx = max(0, val_start - warmup_len)
+        val_episode_end_idx = min(val_end + 1, terminal_idx)
+
+        folds.append(
+            {
+                "fold_id": int(i),
+                "train": {
+                    "episode_start_idx": int(train_episode_start_idx),
+                    "episode_end_idx": int(train_episode_end_idx),
+                    "first_trade_idx": int(outer_train_first_action),
+                    "last_trade_idx": int(train_last_action),
+                },
+                "val": {
+                    "episode_start_idx": int(val_episode_start_idx),
+                    "episode_end_idx": int(val_episode_end_idx),
+                    "first_trade_idx": int(val_start),
+                    "last_trade_idx": int(val_end),
+                },
+                "meta": {
+                    "warmup_len": int(warmup_len),
+                    "val_action_days": int(val_action_days),
+                    "min_train_action_days": int(min_train_action_days),
+                    "outer_train_first_action": int(outer_train_first_action),
+                    "outer_train_last_action": int(outer_train_last_action),
+                },
+            }
+        )
+
+    if len(folds) == 0:
+        raise ValueError(
+            "Could not construct any validation folds. "
+            f"outer_train_num_actions={outer_train_num_actions}, "
+            f"n_val_folds={n_val_folds}, val_action_days={val_action_days}, "
+            f"min_train_action_days={min_train_action_days}."
+        )
+
+    base["val_folds"] = folds
+    base["meta"]["val_folds"] = {
+        "enabled": True,
+        "n_requested": int(n_val_folds),
+        "n_possible": int(max_possible_folds),
+        "n_built": int(len(folds)),
+        "val_action_days": int(val_action_days),
+        "min_train_action_days": int(min_train_action_days),
+        "scope": "inside outer train action window",
+    }
+    return base

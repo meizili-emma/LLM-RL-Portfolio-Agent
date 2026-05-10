@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portfolio-agent"
+version = "0.1.0"
+description = "LLM-driven reinforcement learning framework for weekly portfolio allocation."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Meizi Li" }
+]
+license = { text = "MIT" }
+keywords = [
+  "reinforcement-learning",
+  "portfolio-allocation",
+  "large-language-models",
+  "financial-nlp",
+  "ppo",
+  "risk-aware-rl"
+]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Office/Business :: Financial :: Investment",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

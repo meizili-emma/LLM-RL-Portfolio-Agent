@@ -16,7 +16,9 @@ from stable_baselines3.common.logger import configure
 
 # Adjust these imports to your actual package structure
 from src.rl_agents.env import StockPortfolioEnv
-from src.rl_agents.data import prepare_env_dataframe, plan_rl_train_test_split
+from src.rl_agents.data import (prepare_env_dataframe, 
+                                plan_rl_train_test_split, 
+                                plan_rl_train_test_split_with_forward_rolling_val,) 
 from src.rl_agents.callback import PortfolioLoggingCallback
 from src.rl_agents.feature_extractor import PortfolioFeatureExtractor
 from src.analysis.report import analyze_run
@@ -100,6 +102,46 @@ def save_meta(run_dir: Path, cfg: dict, extra_meta: dict | None = None) -> None:
 # --------------------------------------------------------------------
 # Environment construction helpers
 # --------------------------------------------------------------------
+
+def apply_llm_feature_mask(df_env: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """
+    Apply per-feature scaling/masking to LLM feature columns, based on env.llm_feature_list
+    and env.llm_feature_mask in the config.
+
+    - If a column is in llm_feature_list but not in llm_feature_mask -> factor = 1.0 (no change).
+    - If factor == 0.0 -> we hard-set the column to 0.0 (curriculum 'off' stage).
+    - Otherwise -> we multiply the column by the factor.
+    """
+    env_cfg = cfg.get("env", {})
+    llm_cols = env_cfg.get("llm_feature_list", []) or []
+    mask_cfg = env_cfg.get("llm_feature_mask", {}) or {}
+
+    if not llm_cols or not mask_cfg:
+        # nothing to do
+        return df_env
+
+    df = df_env.copy()
+
+    for col in llm_cols:
+        if col not in df.columns:
+            print(f"[mask] Warning: LLM feature column '{col}' not found in df_env; skipping.")
+            continue
+
+        factor = float(mask_cfg.get(col, 1.0))
+        if factor == 1.0:
+            continue
+
+        # numeric, NaNs -> 0, then scale
+        s = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+        if factor == 0.0:
+            df[col] = 0.0
+        else:
+            df[col] = s * factor
+
+        print(f"[mask] Applied factor {factor} to LLM feature '{col}'.")
+
+    return df
+
 
 def build_env_kwargs(df_slice: pd.DataFrame, cfg: dict) -> dict:
     
@@ -216,24 +258,50 @@ def train(cfg: dict, run_dir: Path, df_env: pd.DataFrame, split_plan: dict) -> s
 
     logger = configure(str(train_log_dir), ["stdout", "csv"])
 
-    model = PPO(
-        rl_cfg["policy"],
-        vec_env,
-        learning_rate=float(hp["learning_rate"]),
-        n_steps=int(hp["n_steps"]),
-        batch_size=int(hp["batch_size"]),
-        n_epochs=int(hp["n_epochs"]),
-        gamma=float(hp["gamma"]),
-        gae_lambda=float(hp["gae_lambda"]),
-        clip_range=float(hp["clip_range"]),
-        ent_coef=float(hp["ent_coef"]),
-        vf_coef=float(hp["vf_coef"]),
-        max_grad_norm=float(hp["max_grad_norm"]),
-        verbose=1,
-        seed=seed,
-        policy_kwargs=policy_kwargs,
-    )
-
+    pretrained_path = cfg["experiment"].get("pretrained_model_path")
+    if pretrained_path:
+        pretrained_path = str(pretrained_path)
+        if Path(pretrained_path).exists():
+            print(f"[train] Loading pretrained PPO model from: {pretrained_path}")
+            model = PPO.load(pretrained_path, env=vec_env)
+        else:
+            print(f"[train] WARNING: pretrained_model_path not found: {pretrained_path}, training from scratch.")
+            model = PPO(
+                rl_cfg["policy"],
+                vec_env,
+                learning_rate=float(hp["learning_rate"]),
+                n_steps=int(hp["n_steps"]),
+                batch_size=int(hp["batch_size"]),
+                n_epochs=int(hp["n_epochs"]),
+                gamma=float(hp["gamma"]),
+                gae_lambda=float(hp["gae_lambda"]),
+                clip_range=float(hp["clip_range"]),
+                ent_coef=float(hp["ent_coef"]),
+                vf_coef=float(hp["vf_coef"]),
+                max_grad_norm=float(hp["max_grad_norm"]),
+                verbose=1,
+                seed=seed,
+                policy_kwargs=policy_kwargs,
+                )
+    else:
+        model = PPO(
+            rl_cfg["policy"],
+            vec_env,
+            learning_rate=float(hp["learning_rate"]),
+            n_steps=int(hp["n_steps"]),
+            batch_size=int(hp["batch_size"]),
+            n_epochs=int(hp["n_epochs"]),
+            gamma=float(hp["gamma"]),
+            gae_lambda=float(hp["gae_lambda"]),
+            clip_range=float(hp["clip_range"]),
+            ent_coef=float(hp["ent_coef"]),
+            vf_coef=float(hp["vf_coef"]),
+            max_grad_norm=float(hp["max_grad_norm"]),
+            verbose=1,
+            seed=seed,
+            policy_kwargs=policy_kwargs,
+            )
+    
     model.set_logger(logger)
 
     model_dir = run_dir / cfg["logging"]["train"]["model_dir"]
@@ -400,6 +468,8 @@ def test(cfg: dict, run_dir: Path, df_env: pd.DataFrame, split_plan: dict, model
 
 def main(config_path: str) -> None:
     cfg = load_config(config_path)
+    stage = str(cfg.get("experiment", {}).get("stage", "final")).lower()
+    
     run_dir = make_run_dir(cfg)
     shutil.copy2(config_path, run_dir / "config.yaml")
     # 1) Load and prepare dataframe for the environment
@@ -415,19 +485,70 @@ def main(config_path: str) -> None:
         print("[data] Missing ticker report (first few rows):")
         print(missing_report.head())
 
+    #  --- Curriculum / LLM feature masking ---
+    df_env = apply_llm_feature_mask(df_env, cfg)
+
     # 2) Plan train/test split with warmup logic
     # Be robust to train_frac vs train_ratio
     train_ratio = float(data_cfg.get("train_ratio", data_cfg.get("train_frac", 0.7)))
 
-    split_plan = plan_rl_train_test_split(
-        df_env=df_env,
-        first_trade_date=data_cfg["first_trade_date"],
-        last_trade_date=data_cfg["last_trade_date"],
-        terminal_date=data_cfg["terminal_date"],
-        train_ratio=train_ratio,
-        norm_window_size=int(data_cfg["norm_window_size"]),
-        trading_state_history_len=int(data_cfg["trading_state_history_len"]),
-    )
+    if stage == "select":
+        print("[split] Stage='select': using forward-rolling validation folds.")
+        n_val_folds = int(data_cfg.get("val_n_folds", 3))
+        val_action_days = int(data_cfg.get("val_action_days", 30))
+        min_train_action_days = int(data_cfg.get("val_min_train_action_days", 150))
+        selected_fold_id = int(data_cfg.get("val_fold_id", 0))
+
+        # Build outer train/test + inner val folds on the masked df_env
+        full_plan = plan_rl_train_test_split_with_forward_rolling_val(
+            df_env=df_env,
+            first_trade_date=data_cfg["first_trade_date"],
+            last_trade_date=data_cfg["last_trade_date"],
+            terminal_date=data_cfg["terminal_date"],
+            train_ratio=train_ratio,
+            norm_window_size=int(data_cfg["norm_window_size"]),
+            trading_state_history_len=int(data_cfg["trading_state_history_len"]),
+            n_val_folds=n_val_folds,
+            val_action_days=val_action_days,
+            min_train_action_days=min_train_action_days,
+        )
+
+        folds = full_plan.get("val_folds", [])
+        if not folds:
+            raise ValueError("Forward-rolling validation requested, but no validation folds were built.")
+
+        if not (0 <= selected_fold_id < len(folds)):
+            raise ValueError(
+                f"Requested validation fold index={selected_fold_id}, "
+                f"but only {len(folds)} folds were built. "
+                f"Use 0..{len(folds)-1} for data.val_fold_id."
+                )
+
+        fold = folds[selected_fold_id]
+        split_plan = {
+            "meta": {
+                **full_plan["meta"],
+                "stage": stage,
+                "selected_val_fold_id": selected_fold_id,
+            },
+            "train": fold["train"],
+            "test": fold["val"],
+            "all_dates": full_plan.get("all_dates", {}),
+        }
+        split_plan_full = full_plan
+
+    else: 
+        print("[split] Stage='final': using standard train/test split.")
+        split_plan = plan_rl_train_test_split(
+            df_env=df_env,
+            first_trade_date=data_cfg["first_trade_date"],
+            last_trade_date=data_cfg["last_trade_date"],
+            terminal_date=data_cfg["terminal_date"],
+            train_ratio=train_ratio,
+            norm_window_size=int(data_cfg["norm_window_size"]),
+            trading_state_history_len=int(data_cfg["trading_state_history_len"]),)
+        split_plan["meta"]["stage"] = stage
+        split_plan_full = split_plan
 
     env_tickers_order = sorted(pd.Series(df_env["ticker"].unique()).dropna().astype(str).tolist())
     weight_labels = ["CASH"] + env_tickers_order
@@ -437,6 +558,7 @@ def main(config_path: str) -> None:
         cfg,
         extra_meta={
             "split_plan": split_plan,
+            "split_plan_full": split_plan_full,
             "env_tickers_order": env_tickers_order,
             "weight_labels": weight_labels,
         },
@@ -454,7 +576,11 @@ def main(config_path: str) -> None:
         figures_dir: Path = paths["figures_dir"]  # type: ignore[assignment]
         tables_dir: Path = paths["tables_dir"] 
         _ = analyze_run(run_dir)
-        print(f"[analysis] Wrote analysis outputs under:{analysis_dir} \n [figures] Wrote plots outputs under:{figures_dir} \n [table] Wrote summary outputs under:{tables_dir}.")
+        print(
+            f"[analysis] Wrote analysis outputs under:{analysis_dir} \n"
+            f"[figures] Wrote plots outputs under:{figures_dir} \n "
+            f"[table] Wrote summary outputs under:{tables_dir}."
+            )
     except Exception as e:
         print(f"[analysis] Failed (non-fatal): {e}")
 

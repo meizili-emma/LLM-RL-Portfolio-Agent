@@ -102,7 +102,7 @@ class StockPortfolioEnv(gym.Env):
             scale_loss_freq (float): Baseline scale for loss frequency (usually 1.0).
             w_vol (float): Weight for volatility component in endogenous risk.
             w_mag (float): Weight for magnitude component in endogenous risk.    
-            v_freq (float): Weight for frequency component in endogenous risk.
+            w_freq (float): Weight for frequency component in endogenous risk.
             reward_scaling (float): Scaling factor for the final reward.       
         """
         super().__init__()
@@ -423,7 +423,8 @@ class StockPortfolioEnv(gym.Env):
         if self._global_dim == 0:
             return np.zeros((1,), dtype=np.float32)
         g = self._global_ts[self.day].astype(np.float32)
-        return np.clip(g, self._action_low, self._action_high, dtype=np.float32)
+        g = np.clip(g, self._action_low, self._action_high)
+        return g.astype(np.float32)
     
     def reset(self, *, seed=None, options=None) -> tuple[OrderedDict, dict]:
         super().reset(seed=seed)

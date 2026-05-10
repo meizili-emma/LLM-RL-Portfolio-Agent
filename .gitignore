@@ -1,19 +1,102 @@
-# Data files
+# =========================
+# Secrets / local environment
+# =========================
+.env
+.env.*
+!.env_sample
+
+# =========================
+# Data: keep public folder structure, ignore contents
+# =========================
 data/*
-*.parquet
-*.csv
-*.json
-!data/.gitkeep
+!data/raw/
+!data/processed/
+!data/rl_runs/
+!data/logs/
+!data/debug/
+
+data/raw/*
+data/processed/*
+data/rl_runs/*
+data/logs/*
+data/debug/*
+
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+!data/rl_runs/.gitkeep
+!data/logs/.gitkeep
+!data/debug/.gitkeep
 
-# Python Caches and Environment
+# Common data artifacts
+*.parquet
+*.csv
+*.pkl
+*.pickle
+*.npy
+*.npz
+
+# =========================
+# Generated experiment artifacts
+# =========================
+outputs/
+runs/
+checkpoints/
+models/
+wandb/
+mlruns/
+*.pt
+*.pth
+*.ckpt
+*.zip
+*.jsonl
+*.log
+
+# =========================
+# Notebooks
+# =========================
+notebooks/
+*.ipynb
+.ipynb_checkpoints/
+
+# =========================
+# Local/deprecated modules kept on server only
+# =========================
+src/indexer/
+src/rl_agents/analysis_template.ipynb
+src/llm_agents/ec_sec_schema_v2.py
+src/llm_agents/sec_ec_schema_v2.py
+src/llm_agents/sec_ec_extractor_v2.py
+src/data_pipeline/market_data_loader.py
+src/data_pipeline/batch_news_analysis.py
+src/rl_agents/exp_configs/
+src/rl_agents/experiment/
+
+# =========================
+# Python cache / build files
+# =========================
 __pycache__/
-*.pyc
-venv/
-.env
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+src/portfolio_agent.egg-info/
 
-# IDE and OS specific
+# =========================
+# Virtual environments
+# =========================
+.venv/
+venv/
+env/
+ENV/
+conda-meta/
+
+# =========================
+# IDE / OS files
+# =========================
 .vscode/
 .idea/
 .DS_Store

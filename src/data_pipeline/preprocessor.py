@@ -9,7 +9,6 @@ from sklearn.preprocessing import RobustScaler
 from src.config import TECHNICAL_INDICATOR
 
 
-
 class GroupByScaler(BaseEstimator, TransformerMixin):
     """Sklearn-like scaler that scales considering groups of data.
 
@@ -97,6 +96,8 @@ def rolling_window_scaler(
         lambda x: _rolling_scale_column(x, window)
     )
     df_normalized.dropna(inplace=True)
+    df_normalized = df_normalized.sort_values(['date', 'ticker'], ignore_index=True)
+    df_normalized.index = df_normalized['date'].factorize()[0]
     return df_normalized
 
 

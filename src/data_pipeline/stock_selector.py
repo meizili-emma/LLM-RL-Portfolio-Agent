@@ -59,9 +59,7 @@ def scrape_sp100_constituents(start_year: int) -> list[str]:
 
 
 def select_portfolio_universe(start_year: int, constituent_list: list[str], portfolio_size: int = 20) -> list[str]:
-    """
-    Selects a diversified portfolio based on a dynamic liquidity filter and proportional sector allocation.
-    """
+    """ Selects a diversified portfolio based on a dynamic liquidity filter and proportional sector allocation."""
     
     # --- 1. Fetch liquidity data for the prior year ---
     liquidity_year = start_year - 1
@@ -98,13 +96,9 @@ def select_portfolio_universe(start_year: int, constituent_list: list[str], port
     # Calculate the proportion of each sector in the liquid universe
     sector_counts = candidates_df['sector'].value_counts()
     sector_proportions = sector_counts / len(candidates_df)
-    # Calculate the ideal, fractional allocation
     ideal_alloc = sector_proportions * portfolio_size
-    # Take the floor as the base allocation
     sector_allocation = ideal_alloc.apply(np.floor).astype(int)
-    # Calculate how many stocks are still needed
     remainder = portfolio_size - sector_allocation.sum()
-    # Distribute the remainder to the sectors with the largest fractional parts
     if remainder > 0:
         largest_remainders = (ideal_alloc - sector_allocation).nlargest(remainder).index
         sector_allocation[largest_remainders] += 1
@@ -125,7 +119,6 @@ def select_portfolio_universe(start_year: int, constituent_list: list[str], port
 
     print("\n--- Final Selected Portfolio ---")
     print(f"Total tickers: {len(final_portfolio_df)}")
-    
     return final_portfolio_df
 
 
@@ -150,7 +143,6 @@ def acquire_portfolio_universe(start_year: int, portfolio_size: int = 20) -> lis
     final_portfolio.to_csv(output_path, index=False)
     
     print(f"\n✅ Final portfolio universe saved to: {output_path}")
-    
     return final_portfolio
 
 

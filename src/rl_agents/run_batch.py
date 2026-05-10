@@ -57,15 +57,25 @@ def get_by_path(d: Dict[str, Any], dotted: str) -> Any:
 # -----------------------------
 # Naming
 # -----------------------------
-def _fmt_val(v: Any, float_fmt: str) -> str:
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, int):
-        return str(v)
-    if isinstance(v, float):
-        # keep stable names (avoid trailing .0 etc.)
+def _fmt_val(v: Any, float_fmt: str = "g") -> str:
+    """
+    Format override values for use in run names.
+
+    - Numbers: formatted with float_fmt.
+    - Lists/tuples: joined with '+' without brackets/quotes.
+    - Everything else: str(v).
+    """
+    # numeric
+    if isinstance(v, (int, float)):
         return format(v, float_fmt)
+
+    # list / tuple: avoid Python repr with [ ' ... ' ]
+    if isinstance(v, (list, tuple)):
+        return "+".join(str(x) for x in v)
+
+    # fallback
     return str(v)
+
 
 
 def make_run_name(
@@ -157,15 +167,32 @@ def expand_grid(grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
 
 def latest_run_dir(stage_root: Path, run_name: str) -> Optional[Path]:
     """
-    run.py creates: stage_root / f"{exp_name}_{timestamp}"
-    Here exp_name == run_name (cfg["experiment"]["name"])
+    Find the most recent run directory whose name starts with '{run_name}_'.
+
+    This version does NOT rely on glob patterns, so it is robust to run_name
+    containing characters like [ ] , ' etc. It treats run_name as a literal
+    string and just checks prefix matches.
     """
-    candidates = sorted(
-        stage_root.glob(f"{run_name}_*"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    return candidates[0] if candidates else None
+    if not stage_root.exists():
+        return None
+
+    prefix = f"{run_name}_"
+    candidates: list[Path] = []
+
+    for p in stage_root.iterdir():
+        if not p.is_dir():
+            continue
+        name = p.name
+        if name.startswith(prefix):
+            candidates.append(p)
+
+    if not candidates:
+        return None
+
+    # If your run_dir names end with a timestamp, lexicographic sort ~ chronological
+    candidates.sort()
+    return candidates[-1]
+
 # -----------------------------
 # Main batch
 # -----------------------------
